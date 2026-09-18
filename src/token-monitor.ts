@@ -220,6 +220,36 @@ export function fetchStats (url: string = DEFAULT_STATS_URL): Promise<TokenStats
   })
 }
 
+export interface GistCredentials {
+  id: string
+  token: string
+}
+
+/**
+ * Resolve Gist credentials from the environment. `GH_TOKEN` is accepted as an
+ * alias for `GITHUB_TOKEN` so waka-box's secret names work unchanged.
+ */
+export function gistCredentials (env: NodeJS.ProcessEnv = process.env): GistCredentials | undefined {
+  const id = env.GIST_ID
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN
+  return id && token ? { id, token } : undefined
+}
+
+/**
+ * Push the rendered box into the Gist.
+ */
+export async function pushToGist (
+  stats: TokenStats,
+  credentials: GistCredentials,
+  options: { filename?: string, box?: BoxOptions } = {}
+): Promise<string> {
+  const content = buildTokenMonitorBox(stats, options.box)
+  const box = new GistBox({ id: credentials.id, token: credentials.token })
+  // waka-box puts the title in the file name, which renders as the card header
+  await box.update({ content, filename: options.filename || GIST_TITLE })
+  return content
+}
+
 /**
  * Fetch the stats and push the rendered box into the Gist.
  */
@@ -231,26 +261,21 @@ export async function updateGistFromStats (options: {
   box?: BoxOptions
 }): Promise<string> {
   const stats = await fetchStats(options.url)
-  const content = buildTokenMonitorBox(stats, options.box)
-  const box = new GistBox({ id: options.id, token: options.token })
-  // waka-box puts the title in the file name, which renders as the card header
-  await box.update({ content, filename: options.filename || GIST_TITLE })
-  return content
+  return pushToGist(stats, { id: options.id, token: options.token }, options)
 }
 
 async function main (): Promise<void> {
   const stats = await fetchStats(process.env.STATS_URL || DEFAULT_STATS_URL)
   const content = buildTokenMonitorBox(stats)
   const problems = checkLimits(content)
+  const credentials = gistCredentials()
 
-  if (process.env.GIST_ID && process.env.GITHUB_TOKEN) {
-    await updateGistFromStats({
-      id: process.env.GIST_ID,
-      token: process.env.GITHUB_TOKEN,
-      url: process.env.STATS_URL,
-      filename: process.env.GIST_FILENAME
-    })
+  if (credentials) {
+    await pushToGist(stats, credentials, { filename: process.env.GIST_FILENAME })
     process.stdout.write('Gist updated.\n')
+  } else if (process.env.REQUIRE_GIST === '1') {
+    // A scheduled run that silently skips the update would look green forever
+    throw new Error('GIST_ID and a token (GITHUB_TOKEN or GH_TOKEN) must both be set')
   }
 
   process.stdout.write(content + '\n')

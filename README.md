@@ -73,6 +73,28 @@ Bars scale the largest month to 100%. Pass `{ percentBasis: 'total' }` to
 shares add up. Pass `{ headline: false }` for rows only, leaving the title to
 the file name.
 
+### Running it on GitHub
+
+`GH_TOKEN` is accepted as an alias for `GITHUB_TOKEN`, so the secret names are
+the same ones waka-box uses.
+
+1. Create a new public Gist (https://gist.github.com/)
+1. Create a token with the `gist` scope (https://github.com/settings/tokens/new).
+   The workflow's own `GITHUB_TOKEN` cannot write to a Gist, so this must be a
+   personal access token.
+1. In this repo go to **Settings > Secrets and variables > Actions** and add:
+   - **GIST_ID:** the ID from your gist url, `https://gist.github.com/jsupa/`**`6d5f84419863089a167387da62dd7081`**
+   - **GH_TOKEN:** the token from step 2
+1. Trigger `.github/workflows/gist.yml` from the **Actions** tab, or wait for
+   the hourly schedule.
+
+The workflow sets `REQUIRE_GIST=1`, so a run with a missing secret fails loudly
+instead of finishing green without updating anything.
+
+Two things worth knowing about scheduled workflows: GitHub disables them after
+60 days without repository activity, and the schedule is best-effort, so runs
+can land several minutes late.
+
 ---
 
 Shoutout to [@matchai](https://github.com/matchai) for starting this trend with [bird-box](https://github.com/matchai/bird-box)!

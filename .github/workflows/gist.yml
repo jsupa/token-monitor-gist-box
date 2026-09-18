@@ -1,0 +1,37 @@
+name: Update gist with token stats
+
+on:
+  schedule:
+    # GitHub queues every job that asks for :00, so run off the hour.
+    # Drop to "17 0 * * *" for the once-a-day cadence waka-box uses.
+    - cron: "17 * * * *"
+  # Allow manual runs from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gist-update
+  cancel-in-progress: false
+
+jobs:
+  update-gist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Update gist
+        env:
+          # GH_TOKEN is a personal access token with the `gist` scope. The
+          # workflow's own GITHUB_TOKEN cannot write to a gist.
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          # Fail rather than quietly doing nothing when a secret is missing
+          REQUIRE_GIST: "1"
+        run: node lib/token-monitor.js

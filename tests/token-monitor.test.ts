@@ -7,6 +7,7 @@ import {
   dayLabel,
   formatTokens,
   generateBarChart,
+  gistCredentials,
   monthLabel,
   peakDay,
   recentMonths,
@@ -33,6 +34,29 @@ const stats: TokenStats = {
 }
 
 describe('token-monitor', () => {
+  describe('#gistCredentials', () => {
+    it('reads GIST_ID with GITHUB_TOKEN', () => {
+      expect(gistCredentials({ GIST_ID: 'abc', GITHUB_TOKEN: 'xyz' })).toEqual({ id: 'abc', token: 'xyz' })
+    })
+
+    it('accepts waka-box\'s GH_TOKEN name', () => {
+      expect(gistCredentials({ GIST_ID: 'abc', GH_TOKEN: 'xyz' })).toEqual({ id: 'abc', token: 'xyz' })
+    })
+
+    it('prefers GITHUB_TOKEN when both are set', () => {
+      expect(gistCredentials({ GIST_ID: 'abc', GITHUB_TOKEN: 'one', GH_TOKEN: 'two' }))
+        .toEqual({ id: 'abc', token: 'one' })
+    })
+
+    it('returns undefined when either half is missing', () => {
+      expect(gistCredentials({})).toBeUndefined()
+      expect(gistCredentials({ GIST_ID: 'abc' })).toBeUndefined()
+      expect(gistCredentials({ GH_TOKEN: 'xyz' })).toBeUndefined()
+      // Actions substitute an unset secret with an empty string, not undefined
+      expect(gistCredentials({ GIST_ID: '', GH_TOKEN: '' })).toBeUndefined()
+    })
+  })
+
   describe('#formatTokens', () => {
     it('scales to B, M and K', () => {
       expect(formatTokens(2391694059)).toEqual('2.39B')
