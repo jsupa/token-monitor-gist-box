@@ -88,7 +88,7 @@ the same ones waka-box uses.
    - **GIST_ID:** the ID from your gist url, `https://gist.github.com/jsupa/`**`6d5f84419863089a167387da62dd7081`**
    - **GH_TOKEN:** the token from step 2
 1. Trigger `.github/workflows/gist.yml` from the **Actions** tab, or wait for
-   the hourly schedule.
+   the daily schedule (00:17 UTC).
 
 The workflow sets `REQUIRE_GIST=1`, so a run with a missing secret fails loudly
 instead of finishing green without updating anything.

@@ -2,9 +2,10 @@ name: Update gist with token stats
 
 on:
   schedule:
-    # GitHub queues every job that asks for :00, so run off the hour.
-    # Drop to "17 0 * * *" for the once-a-day cadence waka-box uses.
-    - cron: "17 * * * *"
+    # Daily at 00:17 UTC, the cadence waka-box uses, at an off-peak minute
+    # because GitHub queues every job that asks for :00. Use "17 * * * *"
+    # to refresh hourly instead.
+    - cron: "17 0 * * *"
   # Allow manual runs from the Actions tab
   workflow_dispatch:
 
