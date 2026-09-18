@@ -1,4 +1,5 @@
 import { get } from 'https'
+import { URL } from 'url'
 import { GistBox, MAX_LENGTH, MAX_LINES } from './index'
 
 export const DEFAULT_STATS_URL = 'https://token-monitor-hub.kubov.link/api/public/stats'
@@ -43,6 +44,12 @@ const VALUE_WIDTH = 14
 export const MONTHS_SHOWN = 3
 /** Default pinned-Gist file name, which renders as the card's title */
 export const GIST_TITLE = '📊 Monthly token usage'
+/** Redirect hops allowed before giving up */
+export const MAX_REDIRECTS = 3
+/** Give up on a stalled endpoint rather than hanging the runner */
+export const REQUEST_TIMEOUT_MS = 15000
+/** The real document is ~48KB; this only stops a runaway response */
+export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 /**
  * Format a token count compactly: 2391694059 -> "2.39B", 415749863 -> "415.7M"
@@ -190,33 +197,151 @@ export function checkLimits (content: string): string[] {
 }
 
 /**
- * Fetch the public stats document.
+ * Aborting a transfer is best effort. A socket that is already gone, or a
+ * test double standing in for one, can throw, and that must not stop the
+ * caller from reporting why the fetch failed.
  */
-export function fetchStats (url: string = DEFAULT_STATS_URL): Promise<TokenStats> {
+function destroyQuietly (stream: { destroy: () => void }): void {
+  try {
+    stream.destroy()
+  } catch (error) {
+    return
+  }
+}
+
+/**
+ * Remote values are echoed into error messages, so strip control characters.
+ * A server-controlled Location header could otherwise smuggle newlines or
+ * ANSI escapes into the CI log.
+ */
+export function safeForLog (value: string): string {
+  // tslint:disable-next-line:no-control-regex
+  return String(value).replace(/[\u0000-\u001f\u007f]/g, '')
+}
+
+/** An unvalidated JSON object, before we know anything about its fields */
+type JsonRecord = { [key: string]: unknown }
+
+function isRecord (value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isEntry (entry: unknown, key: string): boolean {
+  if (!isRecord(entry)) return false
+  return typeof entry[key] === 'string' && typeof entry.tokens === 'number'
+}
+
+function isEntryArray (value: unknown, key: string): boolean {
+  return Array.isArray(value) && value.every(entry => isEntry(entry, key))
+}
+
+/**
+ * The payload is third-party JSON, so check the shape we rely on. Downstream
+ * code calls .slice() on month names and .reduce() on these arrays, and a
+ * shape change otherwise surfaces as a confusing TypeError.
+ */
+export function parseStats (value: unknown, url: string): TokenStats {
+  if (!isRecord(value)) {
+    throw new Error(`${safeForLog(url)} did not return a JSON object`)
+  }
+
+  const preview = value.historyPreview
+  if (preview === undefined) return value as TokenStats
+
+  if (!isRecord(preview)) {
+    throw new Error(`${safeForLog(url)} returned a non-object historyPreview`)
+  }
+  if (preview.monthly !== undefined && !isEntryArray(preview.monthly, 'month')) {
+    throw new Error(`${safeForLog(url)} returned a malformed historyPreview.monthly`)
+  }
+  if (preview.daily !== undefined && !isEntryArray(preview.daily, 'date')) {
+    throw new Error(`${safeForLog(url)} returned a malformed historyPreview.daily`)
+  }
+
+  return value as TokenStats
+}
+
+/**
+ * Fetch the public stats document. Redirects are followed a bounded number of
+ * times and never off https, and the body is capped, so a misbehaving or
+ * compromised endpoint cannot loop us, point us at an internal address, or
+ * exhaust memory on an unattended run.
+ */
+export function fetchStats (url: string = DEFAULT_STATS_URL, redirectsLeft: number = MAX_REDIRECTS): Promise<TokenStats> {
   return new Promise((resolve, reject) => {
-    get(url, { headers: { accept: 'application/json', 'user-agent': 'token-monitor-gist-box' } }, res => {
+    let settled = false
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      reject(error)
+    }
+    const succeed = (stats: TokenStats) => {
+      if (settled) return
+      settled = true
+      resolve(stats)
+    }
+
+    const request = get(url, { headers: { accept: 'application/json', 'user-agent': 'token-monitor-gist-box' } }, res => {
+      // Without this, a socket error part way through the body is an
+      // unhandled 'error' event, which takes the whole process down
+      res.on('error', fail)
+
       const { statusCode = 0 } = res
-      if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
+      const location = res.headers.location
+
+      if (statusCode >= 300 && statusCode < 400 && location) {
         res.resume()
-        resolve(fetchStats(res.headers.location))
+        if (redirectsLeft <= 0) {
+          fail(new Error(`Too many redirects while fetching ${safeForLog(url)}`))
+          return
+        }
+        let next: string
+        try {
+          next = new URL(location, url).toString()
+        } catch (error) {
+          fail(new Error(`Invalid redirect from ${safeForLog(url)}: ${safeForLog(location)}`))
+          return
+        }
+        if (next.slice(0, 8) !== 'https://') {
+          fail(new Error(`Refusing to follow a non-https redirect to ${safeForLog(next)}`))
+          return
+        }
+        fetchStats(next, redirectsLeft - 1).then(succeed, fail)
         return
       }
+
       if (statusCode < 200 || statusCode >= 300) {
         res.resume()
-        reject(new Error(`Request to ${url} failed with status ${statusCode}`))
+        fail(new Error(`Request to ${safeForLog(url)} failed with status ${statusCode}`))
         return
       }
+
       let body = ''
+      let size = 0
       res.setEncoding('utf8')
-      res.on('data', chunk => { body += chunk })
+      res.on('data', (chunk: string) => {
+        size += Buffer.byteLength(chunk)
+        if (size > MAX_RESPONSE_BYTES) {
+          destroyQuietly(res)
+          fail(new Error(`Response from ${safeForLog(url)} exceeded ${MAX_RESPONSE_BYTES} bytes`))
+          return
+        }
+        body += chunk
+      })
       res.on('end', () => {
         try {
-          resolve(JSON.parse(body) as TokenStats)
+          succeed(parseStats(JSON.parse(body), url))
         } catch (error) {
-          reject(new Error(`Could not parse response from ${url}: ${error.message}`))
+          fail(new Error(`Could not parse response from ${safeForLog(url)}: ${error.message}`))
         }
       })
-    }).on('error', reject)
+    })
+
+    request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      request.destroy()
+      fail(new Error(`Request to ${safeForLog(url)} timed out after ${REQUEST_TIMEOUT_MS}ms`))
+    })
+    request.on('error', fail)
   })
 }
 
