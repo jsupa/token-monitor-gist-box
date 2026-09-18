@@ -5,6 +5,7 @@
   "main": "lib/index.js",
   "scripts": {
     "build": "rimraf lib && tsc -p tsconfig.json",
+    "stats": "npm run build && node lib/token-monitor.js",
     "lint": "tslint --project tests",
     "test": "tsc --noEmit -p tests && jest --coverage && npm run lint",
     "test:update": "tsc --noEmit -p tests && jest --coverage -u && npm run lint",
