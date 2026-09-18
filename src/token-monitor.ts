@@ -147,10 +147,12 @@ export function buildMonthRows (months: MonthlyEntry[], basis: 'max' | 'total' =
   const max = months.reduce((best, m) => Math.max(best, m.tokens), 0)
   const total = months.reduce((sum, m) => sum + m.tokens, 0)
   const divisor = basis === 'total' ? total : max
-  return months.map(month => {
+  // Newest month first, so the current month sits at the top and the list
+  // reads downwards from it
+  return months.slice().reverse().map(month => {
     const percent = divisor > 0 ? (month.tokens / divisor) * 100 : 0
     // The value column carries its unit, the way waka-box shows "12 hrs 28 mins"
-    return buildRow(month.month, `${formatTokens(month.tokens)} tokens`, percent)
+    return buildRow(monthLabel(month.month), `${formatTokens(month.tokens)} tokens`, percent)
   })
 }
 
@@ -261,13 +263,34 @@ export function parseStats (value: unknown, url: string): TokenStats {
   return value as TokenStats
 }
 
+function hostOf (url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch (error) {
+    throw new Error(`Not a valid URL: ${safeForLog(url)}`)
+  }
+}
+
 /**
  * Fetch the public stats document. Redirects are followed a bounded number of
- * times and never off https, and the body is capped, so a misbehaving or
- * compromised endpoint cannot loop us, point us at an internal address, or
- * exhaust memory on an unattended run.
+ * times, only over https, and only within the host we were pointed at, so a
+ * misbehaving or compromised endpoint cannot loop us or redirect us at an
+ * internal service. The body is capped and the request times out, so it
+ * cannot exhaust memory or stall an unattended run either.
  */
-export function fetchStats (url: string = DEFAULT_STATS_URL, redirectsLeft: number = MAX_REDIRECTS): Promise<TokenStats> {
+export function fetchStats (url: string = DEFAULT_STATS_URL): Promise<TokenStats> {
+  // Every failure surfaces as a rejection, never a synchronous throw, so
+  // callers only need one error path
+  let allowedHost: string
+  try {
+    allowedHost = hostOf(url)
+  } catch (error) {
+    return Promise.reject(error)
+  }
+  return fetchStatsFrom(url, MAX_REDIRECTS, allowedHost)
+}
+
+function fetchStatsFrom (url: string, redirectsLeft: number, allowedHost: string): Promise<TokenStats> {
   return new Promise((resolve, reject) => {
     let settled = false
     const fail = (error: Error) => {
@@ -295,18 +318,22 @@ export function fetchStats (url: string = DEFAULT_STATS_URL, redirectsLeft: numb
           fail(new Error(`Too many redirects while fetching ${safeForLog(url)}`))
           return
         }
-        let next: string
+        let next: URL
         try {
-          next = new URL(location, url).toString()
+          next = new URL(location, url)
         } catch (error) {
           fail(new Error(`Invalid redirect from ${safeForLog(url)}: ${safeForLog(location)}`))
           return
         }
-        if (next.slice(0, 8) !== 'https://') {
-          fail(new Error(`Refusing to follow a non-https redirect to ${safeForLog(next)}`))
+        if (next.protocol !== 'https:') {
+          fail(new Error(`Refusing to follow a non-https redirect to ${safeForLog(next.toString())}`))
           return
         }
-        fetchStats(next, redirectsLeft - 1).then(succeed, fail)
+        if (next.hostname !== allowedHost) {
+          fail(new Error(`Refusing to follow ${safeForLog(allowedHost)} to ${safeForLog(next.hostname)}`))
+          return
+        }
+        fetchStatsFrom(next.toString(), redirectsLeft - 1, allowedHost).then(succeed, fail)
         return
       }
 

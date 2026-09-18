@@ -49,6 +49,16 @@ describe('fetchStats', () => {
     await expect(fetchStats(`${ORIGIN}${PATH}`)).rejects.toThrow('non-https redirect')
   })
 
+  it('refuses to follow a redirect to another host', async () => {
+    // https alone is not enough: this would reach an internal service
+    nock(ORIGIN).get(PATH).reply(302, '', { location: 'https://internal.corp.example/admin' })
+    await expect(fetchStats(`${ORIGIN}${PATH}`)).rejects.toThrow('Refusing to follow stats.test to internal.corp.example')
+  })
+
+  it('rejects a configured url that is not a url', async () => {
+    await expect(fetchStats('not a url')).rejects.toThrow('Not a valid URL')
+  })
+
   it('caps the response body', async () => {
     // The real document is ~48KB, so anything this size is a runaway
     nock(ORIGIN).get(PATH).reply(200, Buffer.alloc(MAX_RESPONSE_BYTES + 4096, 'x'))

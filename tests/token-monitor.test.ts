@@ -138,18 +138,30 @@ describe('token-monitor', () => {
   })
 
   describe('#buildMonthRows', () => {
+    it('lists the current month first and goes down from there', () => {
+      const rows = buildMonthRows(stats.historyPreview!.monthly!.slice(-3))
+      expect(rows[0]).toContain('Sep')
+      expect(rows[1]).toContain('Aug')
+      expect(rows[2]).toContain('Jul')
+    })
+
+    it('uses short month names, not ISO dates', () => {
+      const rows = buildMonthRows(stats.historyPreview!.monthly!.slice(-3))
+      expect(rows.join('\n')).not.toContain('2026-')
+    })
+
     it('scales the largest month to 100% by default', () => {
       const rows = buildMonthRows(stats.historyPreview!.monthly!.slice(-3))
-      expect(rows[2]).toContain('100.0%')
+      expect(rows[0]).toContain('100.0%')
       expect(rows[1]).toContain('92.0%')
-      expect(rows[0]).toContain('84.3%')
+      expect(rows[2]).toContain('84.3%')
     })
 
     it('can make the months sum to 100% instead', () => {
       const rows = buildMonthRows(stats.historyPreview!.monthly!.slice(-3), 'total')
       // 2.39 / (2.02 + 2.20 + 2.39)
-      expect(rows[2]).toContain('36.2%')
-      expect(rows[0]).toContain('30.5%')
+      expect(rows[0]).toContain('36.2%')
+      expect(rows[2]).toContain('30.5%')
     })
   })
 
@@ -183,20 +195,20 @@ describe('token-monitor', () => {
       const lines = box.split('\n')
       expect(lines).toHaveLength(5)
       expect(lines[0]).toContain('Sep 2026 · 2.39B')
-      expect(lines[1]).toContain('2026-07')
-      expect(lines[3]).toContain('2026-09')
-      expect(lines[3]).toContain('100.0%')
+      expect(lines[1]).toContain('Sep')
+      expect(lines[1]).toContain('100.0%')
+      expect(lines[3]).toContain('Jul')
       expect(lines[4]).toEqual('🔥 Peak day · Sep 13 · 415.7M')
     })
 
     it('shows only the last three months', () => {
-      expect(buildTokenMonitorBox(stats)).not.toContain('2026-06')
+      expect(buildTokenMonitorBox(stats)).not.toContain('Jun')
     })
 
     it('can render rows only, the way waka-box does', () => {
       const lines = buildTokenMonitorBox(stats, { headline: false }).split('\n')
       expect(lines).toHaveLength(3)
-      expect(lines[0]).toContain('2026-07')
+      expect(lines[0]).toContain('Sep')
     })
 
     it('stays within the pinned Gist limits', () => {

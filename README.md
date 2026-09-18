@@ -57,16 +57,18 @@ The rendered box is checked against `MAX_LINES` and `MAX_LENGTH`; any violation
 is reported on stderr.
 
 ```
-🪙 Monthly tokens · Sep 2026 · 2.40B
-2026-07    2.02B tokens   █████████████████▋░░░  84.1%
-2026-08    2.20B tokens   ███████████████████▎░  91.7%
-2026-09    2.40B tokens   █████████████████████ 100.0%
+🪙 Monthly tokens · Sep 2026 · 2.41B
+Sep        2.41B tokens   █████████████████████ 100.0%
+Aug        2.20B tokens   ███████████████████▏░  91.5%
+Jul        2.02B tokens   █████████████████▌░░░  83.9%
 🔥 Peak day · Sep 13 · 415.7M
 ```
 
 Rows follow [waka-box](https://github.com/matchai/waka-box): a 10-character
 label, a 14-character value, a 21-cell bar drawn from `░▏▎▍▌▋▊▉█`, and a
-right-aligned percentage. The last `MONTHS_SHOWN` months are shown.
+right-aligned percentage. The last `MONTHS_SHOWN` months are shown, current
+month first. The file name renders as the card's title; override it with
+`GIST_FILENAME`.
 
 Bars scale the largest month to 100%. Pass `{ percentBasis: 'total' }` to
 `buildTokenMonitorBox` instead and the months sum to 100% the way waka-box
